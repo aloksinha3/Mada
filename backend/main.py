@@ -173,14 +173,38 @@ async def get_patient(patient_id: int):
             meds = json.loads(patient['medications'])
             # Ensure medications are in the correct format
             if meds and isinstance(meds, list):
-                # Convert old string format to new format if needed
-                if len(meds) > 0 and isinstance(meds[0], str):
-                    patient['medications'] = [{"name": m, "dosage": "", "frequency": [], "time": ""} for m in meds]
-                else:
-                    patient['medications'] = meds
+                # Convert old formats to new format
+                converted_meds = []
+                for m in meds:
+                    if isinstance(m, str):
+                        # Old format: just string
+                        converted_meds.append({"name": m, "dosage": "", "frequency": [], "time": ""})
+                    elif isinstance(m, dict):
+                        # Check if frequency is string (old) or array (new)
+                        freq = m.get("frequency", [])
+                        if isinstance(freq, str):
+                            # Old format: string frequency
+                            converted_meds.append({
+                                "name": m.get("name", ""),
+                                "dosage": m.get("dosage", ""),
+                                "frequency": [freq] if freq else [],
+                                "time": m.get("time", "")
+                            })
+                        else:
+                            # New format: array frequency
+                            converted_meds.append({
+                                "name": m.get("name", ""),
+                                "dosage": m.get("dosage", ""),
+                                "frequency": freq if isinstance(freq, list) else [],
+                                "time": m.get("time", "")
+                            })
+                    else:
+                        converted_meds.append({"name": str(m), "dosage": "", "frequency": [], "time": ""})
+                patient['medications'] = converted_meds
             else:
                 patient['medications'] = []
-        except:
+        except Exception as e:
+            print(f"Error parsing medications: {e}")
             patient['medications'] = []
     if patient.get('call_schedule'):
         try:
