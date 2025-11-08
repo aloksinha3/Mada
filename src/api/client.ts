@@ -44,6 +44,7 @@ export const api = {
   createPatient: (data: PatientCreate) => apiClient.post('/patients/', data),
   updatePatient: (id: number, data: Partial<PatientCreate>) =>
     apiClient.put(`/patients/${id}`, data),
+  deletePatient: (id: number) => apiClient.delete(`/patients/${id}`),
   
   // IVR Schedule
   generateIVRSchedule: (patientId: number) =>

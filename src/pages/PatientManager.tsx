@@ -109,6 +109,21 @@ export default function PatientManager() {
     }
   }
 
+  const handleDelete = async (patientId: number, patientName: string) => {
+    if (!confirm(`Are you sure you want to delete patient "${patientName}"? This will also delete all associated calls and messages. This action cannot be undone.`)) {
+      return
+    }
+    
+    try {
+      await api.deletePatient(patientId)
+      alert('Patient deleted successfully!')
+      loadPatients()
+    } catch (error) {
+      console.error('Error deleting patient:', error)
+      alert('Error deleting patient. Please try again.')
+    }
+  }
+
   const addMedication = () => {
     setMedicationInputs([...medicationInputs, { name: '', dosage: '', frequency: '' }])
   }
@@ -219,10 +234,17 @@ export default function PatientManager() {
                   </button>
                   <button
                     onClick={() => handleGenerateSchedule(patient.id)}
-                    className="text-green-600 hover:text-green-900 text-xs"
+                    className="text-green-600 hover:text-green-900 text-xs px-2 py-1"
                     title="Generate Schedule"
                   >
                     Schedule
+                  </button>
+                  <button
+                    onClick={() => handleDelete(patient.id, patient.name)}
+                    className="text-red-600 hover:text-red-900"
+                    title="Delete Patient"
+                  >
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </td>
               </tr>

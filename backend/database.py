@@ -275,3 +275,27 @@ class Database:
         
         conn.commit()
         conn.close()
+    
+    def delete_patient(self, patient_id: int) -> bool:
+        """Delete a patient and all associated data"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Delete associated messages
+            cursor.execute("DELETE FROM patient_messages WHERE patient_id = ?", (patient_id,))
+            
+            # Delete associated call logs
+            cursor.execute("DELETE FROM call_logs WHERE patient_id = ?", (patient_id,))
+            
+            # Delete the patient
+            cursor.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
+            
+            conn.commit()
+            conn.close()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"Error deleting patient: {e}")
+            return False
