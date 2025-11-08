@@ -12,6 +12,14 @@ class Database:
     def get_connection(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # Enable foreign key constraints (must be enabled for each connection)
+        conn.execute("PRAGMA foreign_keys = ON")
+        # Verify it's enabled
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys")
+        fk_enabled = cursor.fetchone()[0]
+        if not fk_enabled:
+            print("Warning: Foreign keys could not be enabled")
         return conn
     
     def init_db(self):
@@ -279,23 +287,41 @@ class Database:
     def delete_patient(self, patient_id: int) -> bool:
         """Delete a patient and all associated data"""
         conn = self.get_connection()
+        # Enable foreign keys
+        conn.execute("PRAGMA foreign_keys = ON")
         cursor = conn.cursor()
         
         try:
-            # Delete associated messages
+            # First, check if patient exists
+            cursor.execute("SELECT id FROM patients WHERE id = ?", (patient_id,))
+            if not cursor.fetchone():
+                conn.close()
+                return False
+            
+            # Delete associated messages first
             cursor.execute("DELETE FROM patient_messages WHERE patient_id = ?", (patient_id,))
+            messages_deleted = cursor.rowcount
             
             # Delete associated call logs
             cursor.execute("DELETE FROM call_logs WHERE patient_id = ?", (patient_id,))
+            calls_deleted = cursor.rowcount
             
             # Delete the patient
             cursor.execute("DELETE FROM patients WHERE id = ?", (patient_id,))
+            patients_deleted = cursor.rowcount
             
             conn.commit()
             conn.close()
-            return cursor.rowcount > 0
+            
+            if patients_deleted > 0:
+                print(f"Deleted patient {patient_id}: {patients_deleted} patient, {messages_deleted} messages, {calls_deleted} calls")
+                return True
+            else:
+                return False
         except Exception as e:
             conn.rollback()
             conn.close()
-            print(f"Error deleting patient: {e}")
+            print(f"Error deleting patient {patient_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return False

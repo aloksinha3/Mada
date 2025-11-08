@@ -115,12 +115,13 @@ export default function PatientManager() {
     }
     
     try {
-      await api.deletePatient(patientId)
+      const response = await api.deletePatient(patientId)
       alert('Patient deleted successfully!')
       loadPatients()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting patient:', error)
-      alert('Error deleting patient. Please try again.')
+      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred'
+      alert(`Error deleting patient: ${errorMessage}`)
     }
   }
 

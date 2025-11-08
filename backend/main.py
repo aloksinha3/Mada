@@ -209,12 +209,18 @@ async def update_patient(patient_id: int, patient_update: PatientUpdate):
 @app.delete("/patients/{patient_id}")
 async def delete_patient(patient_id: int):
     """Delete a patient and all associated data"""
-    success = db.delete_patient(patient_id)
-    
-    if not success:
-        raise HTTPException(status_code=404, detail="Patient not found")
-    
-    return {"message": "Patient deleted successfully"}
+    try:
+        success = db.delete_patient(patient_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Patient not found or could not be deleted")
+        
+        return {"message": "Patient deleted successfully"}
+    except Exception as e:
+        print(f"Error in delete_patient endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error deleting patient: {str(e)}")
 
 @app.post("/generate_comprehensive_ivr_schedule")
 async def generate_comprehensive_ivr_schedule(request: ScheduleRequest):
