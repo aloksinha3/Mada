@@ -7,18 +7,36 @@ from database import Database
 
 class TwilioService:
     def __init__(self, config_path: str = "config.yaml"):
+        """Initialize Twilio Service
+        
+        Credentials are loaded from:
+        1. Environment variables (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER)
+        2. config.yaml file (twilio.account_sid, twilio.auth_token, twilio.from_number)
+        
+        Configured credentials:
+        - Account SID: ACd2ed65282f924c5637f277f7f5160336
+        - From Number: +19199180358
+        """
         self.config = self._load_config(config_path)
         self.db = Database()
         
-        # Twilio credentials
+        # Twilio credentials - check environment variables first, then config file
         account_sid = os.getenv("TWILIO_ACCOUNT_SID") or self.config.get("twilio", {}).get("account_sid")
         auth_token = os.getenv("TWILIO_AUTH_TOKEN") or self.config.get("twilio", {}).get("auth_token")
         self.from_number = os.getenv("TWILIO_FROM_NUMBER") or self.config.get("twilio", {}).get("from_number")
         
         if account_sid and auth_token:
-            self.client = Client(account_sid, auth_token)
+            try:
+                self.client = Client(account_sid, auth_token)
+                print(f"✅ Twilio service initialized successfully")
+                print(f"   From Number: {self.from_number}")
+            except Exception as e:
+                print(f"⚠️ Error initializing Twilio client: {e}")
+                self.client = None
         else:
             print("⚠️ Twilio credentials not found. Some features will be disabled.")
+            print("   Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER")
+            print("   or configure them in config.yaml")
             self.client = None
     
     def _load_config(self, config_path: str) -> dict:
@@ -27,35 +45,67 @@ class TwilioService:
                 return yaml.safe_load(f)
         return {}
     
-    def make_call(self, to_number: str, message_text: str, patient_id: int = None) -> Optional[str]:
-        """Make a phone call using Twilio"""
+    def make_call(self, to_number: str, message_text: str, patient_id: int = None, use_twiml: bool = False) -> Optional[str]:
+        """Make a phone call using Twilio
+        
+        Args:
+            to_number: Phone number to call (E.164 format, e.g., +1234567890)
+            message_text: Message to deliver during the call
+            patient_id: Optional patient ID for tracking
+            use_twiml: If True, use TwiML directly instead of webhook URL (for testing)
+            
+        Returns:
+            Call SID if successful, None otherwise
+            
+        Note:
+            For local testing, either:
+            1. Set SERVER_URL to your ngrok URL: export SERVER_URL=https://your-ngrok-url.ngrok.io
+            2. Or use use_twiml=True to generate TwiML directly (simpler for testing)
+        """
         if not self.client:
             print("⚠️ Twilio client not initialized. Cannot make call.")
+            print("   Check that Twilio credentials are configured in config.yaml or environment variables.")
+            return None
+        
+        if not self.from_number:
+            print("⚠️ Twilio from_number not configured. Cannot make call.")
             return None
         
         try:
-            # Create TwiML URL or use webhook
-            # You need to replace this with your actual server URL
-            # Get server URL - for production, this should be your public URL
-            # For local testing, use ngrok URL
-            server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+            print(f"📞 Making call to {to_number} from {self.from_number}")
             
-            # Ensure URL is publicly accessible (use ngrok for local testing)
-            webhook_url = f"{server_url}/twilio/voice"
+            if use_twiml:
+                # Generate TwiML directly for testing (no webhook needed)
+                response = VoiceResponse()
+                response.say(message_text, voice="alice", language="en-US")
+                response.hangup()
+                twiml = str(response)
+                
+                print(f"   Using TwiML directly (no webhook required)")
+                call = self.client.calls.create(
+                    to=to_number,
+                    from_=self.from_number,
+                    twiml=twiml
+                )
+            else:
+                # Use webhook URL (requires publicly accessible server)
+                server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+                webhook_url = f"{server_url}/twilio/voice"
+                
+                print(f"   Webhook URL: {webhook_url}")
+                call = self.client.calls.create(
+                    to=to_number,
+                    from_=self.from_number,
+                    url=webhook_url,
+                    method="POST"
+                )
             
-            print(f"Making call to {to_number} using webhook: {webhook_url}")
-            
-            call = self.client.calls.create(
-                to=to_number,
-                from_=self.from_number,
-                url=webhook_url,
-                method="POST"
-            )
-            
-            print(f"Call initiated: {call.sid}")
+            print(f"✅ Call initiated: {call.sid}")
             return call.sid
         except Exception as e:
             print(f"❌ Error making call: {e}")
+            if not use_twiml:
+                print(f"   Try using use_twiml=True for testing, or set SERVER_URL to a publicly accessible URL (use ngrok)")
             return None
     
     def handle_inbound_call(self, request: Dict) -> str:

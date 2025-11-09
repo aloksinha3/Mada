@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -7,7 +7,26 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 second timeout
 })
+
+// Add response interceptor for better error handling
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    // Handle network errors
+    if (!error.response) {
+      if (error.code === 'ECONNABORTED') {
+        error.message = `Request timeout: The server at ${API_BASE_URL} did not respond in time. Please check if the backend server is running.`
+      } else if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+        error.message = `Network error: Cannot connect to ${API_BASE_URL}. Please ensure the backend server is running and accessible.`
+      } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        error.message = `Cannot connect to backend server at ${API_BASE_URL}. Please check if the server is running.`
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 export interface Medication {
   name: string

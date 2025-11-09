@@ -20,6 +20,24 @@ export default function PatientManager() {
   
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+  // Helper function to extract error message from various error types
+  const getErrorMessage = (error: any): string => {
+    if (error?.response) {
+      // HTTP error response from server
+      return error.response.data?.detail || 
+             error.response.data?.message || 
+             error.response.statusText || 
+             `Server error (${error.response.status})`
+    } else if (error?.message) {
+      // Network error or other error with message
+      return error.message
+    } else if (error?.code) {
+      // Error with code but no message
+      return `Network error: ${error.code}`
+    }
+    return 'Unknown error occurred'
+  }
+
   useEffect(() => {
     loadPatients()
   }, [])
@@ -28,8 +46,12 @@ export default function PatientManager() {
     try {
       const response = await api.getPatients()
       setPatients(response.data)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading patients:', error)
+      // Show error message for network issues
+      if (!error?.response) {
+        alert(`Error loading patients: ${getErrorMessage(error)}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -68,8 +90,7 @@ export default function PatientManager() {
       loadPatients()
     } catch (error: any) {
       console.error('Error saving patient:', error)
-      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred'
-      alert(`Error saving patient: ${errorMessage}`)
+      alert(`Error saving patient: ${getErrorMessage(error)}`)
     }
   }
 
@@ -119,9 +140,9 @@ export default function PatientManager() {
       await api.generateIVRSchedule(patientId)
       alert('IVR schedule generated successfully!')
       loadPatients()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating schedule:', error)
-      alert('Error generating schedule. Please try again.')
+      alert(`Error generating schedule: ${getErrorMessage(error)}`)
     }
   }
 
@@ -136,8 +157,7 @@ export default function PatientManager() {
       loadPatients()
     } catch (error: any) {
       console.error('Error deleting patient:', error)
-      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred'
-      alert(`Error deleting patient: ${errorMessage}`)
+      alert(`Error deleting patient: ${getErrorMessage(error)}`)
     }
   }
 

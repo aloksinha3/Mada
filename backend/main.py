@@ -446,12 +446,44 @@ async def execute_call(call_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Helper functions
+def convert_medications_to_strings(medications: List) -> List[str]:
+    """Convert medication objects/dicts to string format for AI model"""
+    med_strings = []
+    for med in medications:
+        if isinstance(med, dict):
+            med_str = med.get("name", "")
+            if med.get("dosage"):
+                med_str += f" {med.get('dosage')}"
+            frequency = med.get("frequency", [])
+            if frequency:
+                if isinstance(frequency, list):
+                    med_str += f" ({', '.join(frequency)})"
+                else:
+                    med_str += f" ({frequency})"
+            med_strings.append(med_str)
+        elif isinstance(med, Medication):
+            med_str = med.name
+            if med.dosage:
+                med_str += f" {med.dosage}"
+            if med.frequency:
+                if isinstance(med.frequency, list):
+                    med_str += f" ({', '.join(med.frequency)})"
+                else:
+                    med_str += f" ({med.frequency})"
+            med_strings.append(med_str)
+        else:
+            med_strings.append(str(med))
+    return med_strings
+
 def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]:
     """Generate comprehensive IVR schedule for a patient"""
     schedule = []
     current_time = datetime.now()
     gestational_age = patient.gestational_age_weeks
     weeks_remaining = max(0, 40 - gestational_age)
+    
+    # Convert medications to strings for AI model
+    medications_strings = convert_medications_to_strings(patient.medications)
     
     # Determine call frequency based on risk category
     if patient.risk_category == "high":
@@ -472,7 +504,7 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
             gestational_age_weeks=gestational_age + week,
             risk_factors=patient.risk_factors,
             risk_category=patient.risk_category,
-            medications=patient.medications
+            medications=medications_strings
         )
         
         schedule.append({
@@ -493,35 +525,7 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
     
     # Generate medication reminders based on days and times
     if patient.medications:
-        # Convert medications to list of strings for message generation
-        med_strings = []
-        for med in patient.medications:
-            if isinstance(med, dict):
-                med_str = med.get("name", "")
-                if med.get("dosage"):
-                    med_str += f" {med.get('dosage')}"
-                frequency = med.get("frequency", [])
-                if frequency:
-                    if isinstance(frequency, list):
-                        med_str += f" ({', '.join(frequency)})"
-                    else:
-                        med_str += f" ({frequency})"
-                med_strings.append(med_str)
-            elif isinstance(med, Medication):
-                med_str = med.name
-                if med.dosage:
-                    med_str += f" {med.dosage}"
-                if med.frequency:
-                    if isinstance(med.frequency, list):
-                        med_str += f" ({', '.join(med.frequency)})"
-                    else:
-                        med_str += f" ({med.frequency})"
-                med_strings.append(med_str)
-            else:
-                med_strings.append(str(med))
-        
         # Generate calls for each medication based on days and times
-        from datetime import datetime, time as dt_time
         day_map = {'Sun': 6, 'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5}
         
         for med in patient.medications:
@@ -598,7 +602,7 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
                 gestational_age_weeks=gestational_age + week,
                 risk_factors=patient.risk_factors,
                 risk_category=patient.risk_category,
-                medications=patient.medications
+                medications=medications_strings
             )
             
             schedule.append({
