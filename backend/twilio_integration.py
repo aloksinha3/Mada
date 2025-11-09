@@ -45,6 +45,31 @@ class TwilioService:
                 return yaml.safe_load(f)
         return {}
     
+    def _normalize_phone_number(self, phone: str) -> str:
+        """Normalize phone number to E.164 format (+1XXXXXXXXXX)
+        
+        Args:
+            phone: Phone number in any format
+            
+        Returns:
+            Phone number in E.164 format
+        """
+        # Remove all non-digit characters
+        digits = ''.join(filter(str.isdigit, phone))
+        
+        # If it starts with 1 and has 11 digits, add +
+        if len(digits) == 11 and digits[0] == '1':
+            return f"+{digits}"
+        # If it has 10 digits, assume US number and add +1
+        elif len(digits) == 10:
+            return f"+1{digits}"
+        # If it already starts with +, return as-is
+        elif phone.startswith('+'):
+            return phone
+        # Otherwise, try to format it
+        else:
+            return f"+1{digits}" if digits else phone
+    
     def make_call(self, to_number: str, message_text: str, patient_id: int = None, use_twiml: bool = False) -> Optional[str]:
         """Make a phone call using Twilio
         
@@ -71,9 +96,11 @@ class TwilioService:
             print("⚠️ Twilio from_number not configured. Cannot make call.")
             return None
         
+        # Normalize phone number to E.164 format
+        normalized_number = self._normalize_phone_number(to_number)
+        print(f"📞 Making call to {normalized_number} (original: {to_number}) from {self.from_number}")
+        
         try:
-            print(f"📞 Making call to {to_number} from {self.from_number}")
-            
             if use_twiml:
                 # Generate TwiML directly for testing (no webhook needed)
                 # Simple message delivery - no user interaction
@@ -86,7 +113,7 @@ class TwilioService:
                 
                 print(f"   Using TwiML directly (no webhook required)")
                 call = self.client.calls.create(
-                    to=to_number,
+                    to=normalized_number,
                     from_=self.from_number,
                     twiml=twiml
                 )
@@ -97,7 +124,7 @@ class TwilioService:
                 
                 print(f"   Webhook URL: {webhook_url}")
                 call = self.client.calls.create(
-                    to=to_number,
+                    to=normalized_number,
                     from_=self.from_number,
                     url=webhook_url,
                     method="POST"

@@ -131,7 +131,7 @@ async def create_patient(patient: PatientCreate):
     """Create a new patient"""
     try:
         # Convert medications to dict format for storage
-        medications_list = [med.dict() if isinstance(med, Medication) else med for med in patient.medications]
+        medications_list = [med.model_dump() if hasattr(med, 'model_dump') else (med.dict() if hasattr(med, 'dict') else med) for med in patient.medications]
         
         patient_id = db.create_patient(
             name=patient.name,
@@ -574,8 +574,13 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
         call_frequency_days = 7
     
     # Generate weekly check-ins
+    # Start from tomorrow to avoid scheduling calls in the past
+    # For test calls, we can schedule for today if needed
+    start_day = 1  # Start from tomorrow (1 day ahead)
     for week in range(min(weeks_remaining, 20)):  # Up to 20 weeks of calls
-        call_time = current_time + timedelta(days=week * call_frequency_days)
+        call_time = current_time + timedelta(days=start_day + (week * call_frequency_days))
+        # Set a default time (e.g., 9 AM) for weekly check-ins
+        call_time = call_time.replace(hour=9, minute=0, second=0, microsecond=0)
         
         # Weekly check-in
         message = generate_simple_message(
@@ -635,15 +640,30 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
                     
                     # Calculate the next occurrence of this day
                     day_of_week = day_map[day_name]
-                    days_ahead = day_of_week - current_time.weekday()
-                    if days_ahead <= 0:  # Target day already happened this week
-                        days_ahead += 7
+                    current_day = current_time.weekday()
+                    days_ahead = day_of_week - current_day
                     
-                    # Add weeks offset
-                    days_ahead += week * 7
-                    
-                    call_date = current_time + timedelta(days=days_ahead)
-                    call_time = call_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    # If today is the target day and time hasn't passed, schedule for today
+                    if days_ahead == 0:
+                        call_time_today = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                        if call_time_today > current_time:
+                            # Schedule for today
+                            call_time = call_time_today
+                        else:
+                            # Time has passed today, schedule for next week
+                            days_ahead = 7 + (week * 7)
+                            call_date = current_time + timedelta(days=days_ahead)
+                            call_time = call_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    elif days_ahead < 0:
+                        # Target day already happened this week, schedule for next occurrence
+                        days_ahead = 7 + days_ahead + (week * 7)
+                        call_date = current_time + timedelta(days=days_ahead)
+                        call_time = call_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    else:
+                        # Target day is later this week or in future weeks
+                        days_ahead = days_ahead + (week * 7)
+                        call_date = current_time + timedelta(days=days_ahead)
+                        call_time = call_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
                     
                     # Only schedule if it's in the future
                     if call_time > current_time:
