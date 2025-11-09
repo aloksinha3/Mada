@@ -110,60 +110,9 @@ class TwilioService:
         # If ElevenLabs is enabled, use it for outbound calls
         if self.elevenlabs_enabled and self.elevenlabs_service.client:
             print(f"   Using ElevenLabs AI agent for outbound call")
-            
-            # Extract patient info and medication name if patient_id is provided
-            user_name = None
-            medication_name = None
-            
-            if patient_id:
-                try:
-                    conn = self.db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT name, medications FROM patients WHERE id = ?", (patient_id,))
-                    patient_row = cursor.fetchone()
-                    conn.close()
-                    
-                    if patient_row:
-                        user_name = patient_row['name']
-                        
-                        # Extract medication name from medications or message_text
-                        if patient_row['medications']:
-                            import json
-                            try:
-                                medications = json.loads(patient_row['medications'])
-                                if medications and isinstance(medications, list) and len(medications) > 0:
-                                    # Get first medication name
-                                    med = medications[0]
-                                    if isinstance(med, dict):
-                                        medication_name = med.get('name', '')
-                                    elif isinstance(med, str):
-                                        medication_name = med
-                            except:
-                                pass
-                        
-                        # If no medication found in patient data, try to extract from message_text
-                        if not medication_name and message_text and call_type == "medication_reminder":
-                            # Try to extract medication name from message like "medications: Folic Acid 400mg"
-                            import re
-                            # Look for pattern like "medications: X" or "take your X"
-                            match = re.search(r'medications?:\s*([^.,]+)', message_text, re.IGNORECASE)
-                            if not match:
-                                match = re.search(r'take your\s+([^.,]+)', message_text, re.IGNORECASE)
-                            if match:
-                                medication_name = match.group(1).strip()
-                                # Remove dosage if present (e.g., "Folic Acid 400mg" -> "Folic Acid")
-                                medication_name = re.sub(r'\s+\d+[a-z]+', '', medication_name, flags=re.IGNORECASE)
-                except Exception as e:
-                    print(f"⚠️ Error extracting patient info: {e}")
-            
-            # Pass patient info to ElevenLabs for personalized prompts
+            # Simple ElevenLabs call - just pass the phone number
             call_sid = self.elevenlabs_service.make_outbound_call(
-                normalized_number, 
-                patient_id=patient_id,
-                user_name=user_name,
-                medication_name=medication_name,
-                call_type=call_type,
-                custom_message=None  # Let ElevenLabs generate from template
+                normalized_number
             )
             if call_sid:
                 return call_sid

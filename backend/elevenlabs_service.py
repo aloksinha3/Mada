@@ -54,18 +54,11 @@ class ElevenLabsService:
                 return yaml.safe_load(f)
         return {}
     
-    def make_outbound_call(self, to_number: str, patient_id: Optional[int] = None, 
-                          user_name: Optional[str] = None, medication_name: Optional[str] = None,
-                          call_type: Optional[str] = None, custom_message: Optional[str] = None) -> Optional[str]:
+    def make_outbound_call(self, to_number: str) -> Optional[str]:
         """Make an outbound call using ElevenLabs agent
         
         Args:
             to_number: Phone number to call (E.164 format)
-            patient_id: Optional patient ID for tracking
-            user_name: Patient's name for personalized greeting
-            medication_name: Medication name for medication reminders
-            call_type: Type of call (medication_reminder, weekly_checkin, etc.)
-            custom_message: Custom message to use (if provided, overrides template)
             
         Returns:
             Call SID if successful, None otherwise
@@ -78,35 +71,12 @@ class ElevenLabsService:
             return None
         
         try:
-            # Generate the custom prompt based on call type
-            if custom_message:
-                prompt = custom_message
-            elif call_type == "medication_reminder" and user_name and medication_name:
-                # Medication check-in template
-                prompt = f"Hello {user_name}, this is your health assistant. Please remember to take your {medication_name} today."
-            elif call_type in ["weekly_checkin", "general_checkin"] and user_name:
-                # General check-in template
-                prompt = f"Hello {user_name}, this is your health assistant. How are you feeling today? I'm calling to check in on your health and see if you have any questions or concerns."
-            elif user_name:
-                # Default personalized greeting
-                prompt = f"Hello {user_name}, this is your health assistant. How can I help you today?"
-            else:
-                # Generic greeting
-                prompt = "Hello, this is your health assistant. How can I help you today?"
-            
-            # Make outbound call through ElevenLabs with metadata.custom_prompt
-            call_params = {
-                "agent_id": self.agent_id,
-                "agent_phone_number_id": self.phone_number_id,
-                "to_number": to_number,
-                "metadata": {
-                    "custom_prompt": prompt
-                }
-            }
-            
-            print(f"📝 Using custom prompt: {prompt[:100]}...")
-            
-            response = self.client.conversational_ai.twilio.outbound_call(**call_params)
+            # Simple ElevenLabs outbound call - no custom prompts
+            response = self.client.conversational_ai.twilio.outbound_call(
+                agent_id=self.agent_id,
+                agent_phone_number_id=self.phone_number_id,
+                to_number=to_number
+            )
             
             # Extract call SID from response
             call_sid = None
@@ -117,7 +87,6 @@ class ElevenLabsService:
             
             if call_sid:
                 print(f"✅ ElevenLabs outbound call initiated: {call_sid}")
-                print(f"📝 Custom prompt: {prompt[:100]}...")
                 return call_sid
             else:
                 print(f"⚠️ ElevenLabs call initiated but no call_sid returned")
