@@ -65,6 +65,7 @@ async def check_and_execute_calls():
                     to_number=call['phone'],
                     message_text=call.get('message_text', ''),
                     patient_id=call['patient_id'],
+                    call_type=call.get('call_type'),
                     use_twiml=use_twiml
                 )
                 

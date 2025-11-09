@@ -54,13 +54,18 @@ class ElevenLabsService:
                 return yaml.safe_load(f)
         return {}
     
-    def make_outbound_call(self, to_number: str, patient_id: Optional[int] = None, initial_message: Optional[str] = None) -> Optional[str]:
+    def make_outbound_call(self, to_number: str, patient_id: Optional[int] = None, 
+                          user_name: Optional[str] = None, medication_name: Optional[str] = None,
+                          call_type: Optional[str] = None, custom_message: Optional[str] = None) -> Optional[str]:
         """Make an outbound call using ElevenLabs agent
         
         Args:
             to_number: Phone number to call (E.164 format)
             patient_id: Optional patient ID for tracking
-            initial_message: Template message to use as the agent's first prompt
+            user_name: Patient's name for personalized greeting
+            medication_name: Medication name for medication reminders
+            call_type: Type of call (medication_reminder, weekly_checkin, etc.)
+            custom_message: Custom message to use (if provided, overrides template)
             
         Returns:
             Call SID if successful, None otherwise
@@ -73,35 +78,33 @@ class ElevenLabsService:
             return None
         
         try:
-            # Make outbound call through ElevenLabs
-            # Pass initial_message if provided to set the agent's first prompt
+            # Generate the custom prompt based on call type
+            if custom_message:
+                prompt = custom_message
+            elif call_type == "medication_reminder" and user_name and medication_name:
+                # Medication check-in template
+                prompt = f"Hello {user_name}, this is your health assistant. Please remember to take your {medication_name} today."
+            elif call_type in ["weekly_checkin", "general_checkin"] and user_name:
+                # General check-in template
+                prompt = f"Hello {user_name}, this is your health assistant. How are you feeling today? I'm calling to check in on your health and see if you have any questions or concerns."
+            elif user_name:
+                # Default personalized greeting
+                prompt = f"Hello {user_name}, this is your health assistant. How can I help you today?"
+            else:
+                # Generic greeting
+                prompt = "Hello, this is your health assistant. How can I help you today?"
+            
+            # Make outbound call through ElevenLabs with metadata.custom_prompt
             call_params = {
                 "agent_id": self.agent_id,
                 "agent_phone_number_id": self.phone_number_id,
-                "to_number": to_number
+                "to_number": to_number,
+                "metadata": {
+                    "custom_prompt": prompt
+                }
             }
             
-            # If we have an initial message, pass it as conversation_initiation_client_data
-            # This allows the agent to start with the template message
-            if initial_message:
-                try:
-                    # Try to use the proper type if available
-                    from elevenlabs.types.conversation_initiation_client_data_request_input import ConversationInitiationClientDataRequestInput
-                    # Try creating with initial_message field
-                    try:
-                        call_params["conversation_initiation_client_data"] = ConversationInitiationClientDataRequestInput(
-                            initial_message=initial_message
-                        )
-                    except:
-                        # If that doesn't work, try as dict (Pydantic models often accept dicts)
-                        call_params["conversation_initiation_client_data"] = {
-                            "initial_message": initial_message
-                        }
-                except ImportError:
-                    # Fallback to dict if type not available
-                    call_params["conversation_initiation_client_data"] = {
-                        "initial_message": initial_message
-                    }
+            print(f"📝 Using custom prompt: {prompt[:100]}...")
             
             response = self.client.conversational_ai.twilio.outbound_call(**call_params)
             
@@ -114,29 +117,15 @@ class ElevenLabsService:
             
             if call_sid:
                 print(f"✅ ElevenLabs outbound call initiated: {call_sid}")
-                if initial_message:
-                    print(f"📝 Initial message set: {initial_message[:100]}...")
+                print(f"📝 Custom prompt: {prompt[:100]}...")
                 return call_sid
             else:
                 print(f"⚠️ ElevenLabs call initiated but no call_sid returned")
                 return "elevenlabs_call"
         except Exception as e:
             print(f"❌ Error making ElevenLabs outbound call: {e}")
-            # If initial_message parameter fails, try without it
-            if initial_message and "initial_message" in str(e):
-                print("⚠️ Retrying without initial_message parameter...")
-                try:
-                    response = self.client.conversational_ai.twilio.outbound_call(
-                        agent_id=self.agent_id,
-                        agent_phone_number_id=self.phone_number_id,
-                        to_number=to_number
-                    )
-                    call_sid = response.call_sid if hasattr(response, 'call_sid') else (response.get('call_sid') if isinstance(response, dict) else None)
-                    if call_sid:
-                        print(f"✅ ElevenLabs outbound call initiated (without initial_message): {call_sid}")
-                        return call_sid
-                except Exception as e2:
-                    print(f"❌ Retry also failed: {e2}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def get_inbound_call_twiml(self, from_number: str, initial_message: Optional[str] = None) -> str:
