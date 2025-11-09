@@ -163,15 +163,20 @@ class TwilioService:
                 
                 response = VoiceResponse()
                 
-                # First, play the basic medication reminder using Twilio TTS
-                if call_type == "medication_reminder" and user_name and medication_name:
+                # Play the full message preview using Twilio TTS
+                if message_text:
+                    # Clean the message text (remove "Press 1" instructions if present)
+                    clean_message = message_text.split("\n\nPress 1")[0].strip()
+                    reminder_message = clean_message
+                    print(f"📢 Playing full message preview via Twilio TTS: {clean_message[:100]}...")
+                elif call_type == "medication_reminder" and user_name and medication_name:
                     reminder_message = f"Hello {user_name}, this is your reminder to take your {medication_name} today."
                 elif user_name:
                     reminder_message = f"Hello {user_name}, this is your health assistant calling."
                 else:
                     reminder_message = "Hello, this is your health assistant calling."
                 
-                print(f"📢 Playing Twilio reminder: {reminder_message}")
+                print(f"📢 Playing Twilio reminder: {reminder_message[:100]}...")
                 response.say(reminder_message, voice="alice", language="en-US")
                 
                 # Then redirect to ElevenLabs agent for the conversation
