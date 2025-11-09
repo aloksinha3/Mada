@@ -104,19 +104,33 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         
+        # Check if phone number already exists
+        cursor.execute("SELECT id, name FROM patients WHERE phone = ?", (phone,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            conn.close()
+            raise ValueError(f"Phone number {phone} is already registered to patient: {existing[1]} (ID: {existing[0]})")
+        
         risk_factors_str = json.dumps(risk_factors or [])
         # Medications is now a list of dicts: [{"name": "...", "dosage": "...", "frequency": "..."}]
         medications_str = json.dumps(medications or [])
         
-        cursor.execute("""
-            INSERT INTO patients (name, phone, gestational_age_weeks, risk_factors, medications, risk_category)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (name, phone, gestational_age_weeks, risk_factors_str, medications_str, risk_category))
-        
-        patient_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return patient_id
+        try:
+            cursor.execute("""
+                INSERT INTO patients (name, phone, gestational_age_weeks, risk_factors, medications, risk_category)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (name, phone, gestational_age_weeks, risk_factors_str, medications_str, risk_category))
+            
+            patient_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return patient_id
+        except Exception as e:
+            conn.close()
+            if "UNIQUE constraint" in str(e) or "UNIQUE" in str(e):
+                raise ValueError(f"Phone number {phone} is already registered. Please use a different phone number.")
+            raise
     
     def get_patient(self, patient_id: int) -> Optional[Dict]:
         conn = self.get_connection()
@@ -144,6 +158,15 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         
+        # Check if phone is being updated and if it's a duplicate
+        if 'phone' in kwargs:
+            cursor.execute("SELECT id, name FROM patients WHERE phone = ? AND id != ?", 
+                          (kwargs['phone'], patient_id))
+            existing = cursor.fetchone()
+            if existing:
+                conn.close()
+                raise ValueError(f"Phone number {kwargs['phone']} is already registered to patient: {existing[1]} (ID: {existing[0]})")
+        
         allowed_fields = ['name', 'phone', 'gestational_age_weeks', 'risk_factors', 
                          'medications', 'risk_category', 'call_schedule']
         updates = []
@@ -160,16 +183,22 @@ class Database:
             conn.close()
             return False
         
-        values.append(patient_id)
-        cursor.execute(f"""
-            UPDATE patients 
-            SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, values)
-        
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            values.append(patient_id)
+            cursor.execute(f"""
+                UPDATE patients 
+                SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, values)
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            conn.close()
+            if "UNIQUE constraint" in str(e) or "UNIQUE" in str(e):
+                raise ValueError(f"Phone number is already registered. Please use a different phone number.")
+            raise
     
     def create_message(self, patient_id: int, message_audio: str = None, 
                       transcript: str = None, status: str = "pending") -> int:
@@ -243,20 +272,48 @@ class Database:
         conn.commit()
         conn.close()
     
-    def get_upcoming_calls(self, limit: int = 10) -> List[Dict]:
-        """Get upcoming calls, limited to most recent 10"""
+    def get_upcoming_calls(self, limit: int = 10, patient_id: int = None) -> List[Dict]:
+        """Get upcoming calls, limited to most recent 10
+        
+        Only returns calls that are:
+        - Status is 'scheduled'
+        - Scheduled time is in the future (not past)
+        - Optional: Filter by patient_id
+        - Ordered by scheduled_time ascending (earliest first)
+        """
+        from datetime import datetime
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        # Get most recent scheduled calls, limit to 10
-        cursor.execute("""
-            SELECT cl.*, p.name, p.phone 
-            FROM call_logs cl
-            JOIN patients p ON cl.patient_id = p.id
-            WHERE cl.status = 'scheduled'
-            ORDER BY cl.scheduled_time ASC
-            LIMIT ?
-        """, (limit,))
+        # Get only future scheduled calls, ordered by time (earliest first)
+        # Use datetime comparison to handle timezone properly
+        current_time = datetime.now()
+        # Convert to string for SQLite comparison (SQLite stores as TEXT)
+        current_time_str = current_time.isoformat()
+        
+        if patient_id:
+            # Get calls for specific patient
+            cursor.execute("""
+                SELECT cl.*, p.name, p.phone 
+                FROM call_logs cl
+                JOIN patients p ON cl.patient_id = p.id
+                WHERE cl.status = 'scheduled'
+                AND cl.patient_id = ?
+                AND datetime(cl.scheduled_time) > datetime(?)
+                ORDER BY datetime(cl.scheduled_time) ASC
+                LIMIT ?
+            """, (patient_id, current_time_str, limit))
+        else:
+            # Get all upcoming calls
+            cursor.execute("""
+                SELECT cl.*, p.name, p.phone 
+                FROM call_logs cl
+                JOIN patients p ON cl.patient_id = p.id
+                WHERE cl.status = 'scheduled'
+                AND datetime(cl.scheduled_time) > datetime(?)
+                ORDER BY datetime(cl.scheduled_time) ASC
+                LIMIT ?
+            """, (current_time_str, limit))
         
         rows = cursor.fetchall()
         conn.close()

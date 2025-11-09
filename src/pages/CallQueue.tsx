@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { Phone, Clock, CheckCircle, Play } from 'lucide-react'
+import { Phone, Clock, CheckCircle, Play, X } from 'lucide-react'
 
 interface Call {
   id: number
@@ -14,20 +14,41 @@ interface Call {
   phone: string
 }
 
+// Format call type for display
+const formatCallType = (callType: string): string => {
+  const formatMap: { [key: string]: string } = {
+    'weekly_checkin': 'Weekly Check In',
+    'medication_reminder': 'Medication Reminder',
+    'test_call': 'Test Call',
+    'high_risk_monitoring': 'High Risk Monitoring',
+    'appointment_notification': 'Appointment Notification'
+  }
+  return formatMap[callType] || callType.split('_').map(word => 
+    word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(' ')
+}
+
 export default function CallQueue() {
   const [calls, setCalls] = useState<Call[]>([])
   const [loading, setLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
   useEffect(() => {
     loadCalls()
-    const interval = setInterval(loadCalls, 5000) // Refresh every 5 seconds for better real-time updates
+    // Refresh every 2 seconds for real-time updates
+    const interval = setInterval(() => {
+      loadCalls()
+      setLastUpdate(new Date())
+    }, 2000)
     return () => clearInterval(interval)
   }, [])
 
   const loadCalls = async () => {
     try {
+      // Add timestamp to prevent caching
       const response = await api.getUpcomingCalls()
-      setCalls(response.data.calls || [])
+      const newCalls = response.data.calls || []
+      setCalls(newCalls)
       setLoading(false)
     } catch (error) {
       console.error('Error loading calls:', error)
@@ -44,9 +65,26 @@ export default function CallQueue() {
       await api.executeCall(callId)
       alert('Call executed successfully!')
       loadCalls() // Refresh the list
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error executing call:', error)
-      alert('Error executing call. Please check Twilio configuration.')
+      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred'
+      alert(`Error executing call: ${errorMessage}`)
+    }
+  }
+
+  const handleCancelCall = async (callId: number, patientName: string) => {
+    if (!confirm(`Are you sure you want to cancel this call for ${patientName}?`)) {
+      return
+    }
+    
+    try {
+      await api.cancelCall(callId)
+      alert('Call cancelled successfully!')
+      loadCalls() // Refresh the list
+    } catch (error: any) {
+      console.error('Error cancelling call:', error)
+      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred'
+      alert(`Error cancelling call: ${errorMessage}`)
     }
   }
 
@@ -57,9 +95,17 @@ export default function CallQueue() {
   return (
     <div>
       <div className="flex justify-between items-center mb-8">
-        <h2 className="text-3xl font-bold text-gray-900">Call Queue</h2>
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">Call Queue</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Last updated: {lastUpdate.toLocaleTimeString()}
+          </p>
+        </div>
         <button
-          onClick={loadCalls}
+          onClick={() => {
+            loadCalls()
+            setLastUpdate(new Date())
+          }}
           className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
         >
           Refresh
@@ -106,7 +152,7 @@ export default function CallQueue() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {call.call_type}
+                      {formatCallType(call.call_type)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -128,16 +174,26 @@ export default function CallQueue() {
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {call.message_text?.substring(0, 100)}...
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                     {call.status === 'scheduled' && (
-                      <button
-                        onClick={() => handleExecuteCall(call.id)}
-                        className="text-green-600 hover:text-green-900 flex items-center"
-                        title="Execute call now"
-                      >
-                        <Play className="w-4 h-4 mr-1" />
-                        Execute
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleExecuteCall(call.id)}
+                          className="text-green-600 hover:text-green-900 flex items-center"
+                          title="Execute call now"
+                        >
+                          <Play className="w-4 h-4 mr-1" />
+                          Execute
+                        </button>
+                        <button
+                          onClick={() => handleCancelCall(call.id, call.name)}
+                          className="text-red-600 hover:text-red-900 flex items-center"
+                          title="Cancel call"
+                        >
+                          <X className="w-4 h-4 mr-1" />
+                          Cancel
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>

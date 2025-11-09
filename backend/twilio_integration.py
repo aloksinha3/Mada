@@ -76,8 +76,11 @@ class TwilioService:
             
             if use_twiml:
                 # Generate TwiML directly for testing (no webhook needed)
+                # Simple message delivery - no user interaction
                 response = VoiceResponse()
-                response.say(message_text, voice="alice", language="en-US")
+                # Remove "Press 1" text if present in message
+                clean_message = message_text.split("\n\nPress 1")[0].strip()
+                response.say(clean_message, voice="alice", language="en-US")
                 response.hangup()
                 twiml = str(response)
                 
@@ -109,7 +112,11 @@ class TwilioService:
             return None
     
     def handle_inbound_call(self, request: Dict) -> str:
-        """Handle inbound Twilio call and generate TwiML response"""
+        """Handle inbound Twilio call and generate TwiML response
+        
+        Simplified version: Only delivers the message and hangs up.
+        No user interaction or message recording.
+        """
         response = VoiceResponse()
         
         # Get caller's phone number
@@ -122,7 +129,11 @@ class TwilioService:
         if patient:
             # Get the next scheduled call message for this patient
             import json
-            call_schedule = json.loads(patient.get("call_schedule", "[]"))
+            call_schedule_str = patient.get("call_schedule") or "[]"
+            try:
+                call_schedule = json.loads(call_schedule_str) if isinstance(call_schedule_str, str) else call_schedule_str
+            except (json.JSONDecodeError, TypeError):
+                call_schedule = []
             
             if call_schedule:
                 # Get the next scheduled message
@@ -130,78 +141,45 @@ class TwilioService:
                 now = datetime.now()
                 upcoming_calls = [
                     c for c in call_schedule
-                    if datetime.fromisoformat(c["scheduled_time"]) > now
+                    if isinstance(c, dict) and c.get("scheduled_time") and datetime.fromisoformat(c["scheduled_time"]) > now
                 ]
                 
                 if upcoming_calls:
                     next_call = upcoming_calls[0]
-                    message_text = next_call.get("message_text", "Hello, this is Mada.")
+                    message_text = next_call.get("message_text", "Hello, this is SabCare.")
                 else:
-                    message_text = f"Hello {patient.get('name', 'Patient')}, this is Mada. How can we help you today?"
+                    message_text = f"Hello {patient.get('name', 'Patient')}, this is SabCare. Thank you for your call."
             else:
-                message_text = f"Hello {patient.get('name', 'Patient')}, this is Mada. How can we help you today?"
+                message_text = f"Hello {patient.get('name', 'Patient')}, this is SabCare. Thank you for your call."
         else:
-            message_text = "Hello, this is Mada. Thank you for calling."
+            message_text = "Hello, this is SabCare. Thank you for calling."
         
-        # Say the message
+        # Say the message and hang up (no user interaction)
         response.say(message_text, voice="alice", language="en-US")
-        
-        # Add "Press 1" functionality
-        gather = response.gather(
-            num_digits=1,
-            action="/twilio/handle_key",
-            method="POST",
-            timeout=10
-        )
-        gather.say("Press 1 if you'd like to leave a message for our medical team.", voice="alice")
-        
-        # If no input, hang up
         response.say("Thank you for calling SabCare. Goodbye.", voice="alice")
         response.hangup()
         
         return str(response)
     
     def handle_key_press(self, request: Dict) -> str:
-        """Handle key press during call"""
+        """Handle key press during call (DISABLED - feature removed)
+        
+        This method is kept for backward compatibility but is no longer used.
+        All calls now simply deliver the message and hang up.
+        """
         response = VoiceResponse()
-        digits = request.get("Digits", "")
-        
-        if digits == "1":
-            # Record message
-            response.say("Please leave your message after the tone. Press the pound key when you're done.", voice="alice")
-            response.record(
-                action="/twilio/handle_recording",
-                method="POST",
-                finish_on_key="#",
-                max_length=60
-            )
-        else:
-            response.say("Thank you for calling. Goodbye.", voice="alice")
-            response.hangup()
-        
+        response.say("This feature is no longer available. Thank you for calling. Goodbye.", voice="alice")
+        response.hangup()
         return str(response)
     
     def handle_recording(self, request: Dict) -> str:
-        """Handle recorded message"""
+        """Handle recorded message (DISABLED - feature removed)
+        
+        This method is kept for backward compatibility but is no longer used.
+        Message recording functionality has been removed.
+        """
         response = VoiceResponse()
-        recording_url = request.get("RecordingUrl", "")
-        caller_number = request.get("From", "")
-        
-        # Find patient
-        patients = self.db.get_all_patients()
-        patient = next((p for p in patients if p.get("phone") == caller_number), None)
-        
-        if patient:
-            # Save message to database
-            self.db.create_message(
-                patient_id=patient["id"],
-                message_audio=recording_url,
-                status="pending"
-            )
-            response.say("Thank you for your message. We will get back to you soon. Goodbye.", voice="alice")
-        else:
-            response.say("Message received. Thank you. Goodbye.", voice="alice")
-        
+        response.say("This feature is no longer available. Thank you for calling. Goodbye.", voice="alice")
         response.hangup()
         return str(response)
     

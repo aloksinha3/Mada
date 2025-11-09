@@ -118,9 +118,7 @@ class FineTunedMedGemmaAI:
                 risk_factors, risk_category, medications
             )
         
-        # Add "Press 1" functionality
-        message += "\n\nPress 1 if you'd like to leave a message for our medical team."
-        
+        # Message delivery only - no user interaction
         return message
     
     def _build_prompt(

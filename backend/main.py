@@ -11,8 +11,6 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from database import Database
-from ai_models.gemma_model import FineTunedMedGemmaAI
-from ai_models.rag_system import RAGSystem
 from twilio_integration import TwilioService
 
 app = FastAPI(title="SabCare API", version="1.0.0")
@@ -28,8 +26,6 @@ app.add_middleware(
 
 # Initialize services
 db = Database()
-gemma_ai = FineTunedMedGemmaAI()
-rag_system = RAGSystem()
 twilio_service = TwilioService()
 
 # Pydantic models
@@ -217,17 +213,23 @@ async def get_patient(patient_id: int):
 @app.put("/patients/{patient_id}")
 async def update_patient(patient_id: int, patient_update: PatientUpdate):
     """Update a patient"""
-    update_data = patient_update.dict(exclude_unset=True)
-    
-    # Handle medications conversion
-    if 'medications' in update_data and update_data['medications'] is not None:
-        medications_list = [med.dict() if isinstance(med, Medication) else med for med in update_data['medications']]
-        update_data['medications'] = medications_list
-    
-    success = db.update_patient(patient_id, **update_data)
-    
-    if not success:
-        raise HTTPException(status_code=404, detail="Patient not found")
+    try:
+        update_data = patient_update.dict(exclude_unset=True)
+        
+        # Handle medications conversion
+        if 'medications' in update_data and update_data['medications'] is not None:
+            medications_list = [med.dict() if isinstance(med, Medication) else med for med in update_data['medications']]
+            update_data['medications'] = medications_list
+        
+        success = db.update_patient(patient_id, **update_data)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Patient not found")
+    except ValueError as e:
+        # Handle duplicate phone number error
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     # Regenerate schedule if relevant fields changed
     if any(key in update_data for key in ['gestational_age_weeks', 'risk_factors', 'medications', 'risk_category']):
@@ -307,10 +309,20 @@ async def generate_comprehensive_ivr_schedule(request: ScheduleRequest):
     return {"schedule": schedule, "message": "IVR schedule generated successfully"}
 
 @app.get("/upcoming-calls-summary")
-async def get_upcoming_calls_summary():
-    """Get summary of upcoming calls (limited to 10 most recent)"""
-    calls = db.get_upcoming_calls(limit=10)
-    return {"calls": calls, "count": len(calls)}
+async def get_upcoming_calls_summary(patient_id: Optional[int] = None):
+    """Get summary of upcoming calls (limited to 10 most recent)
+    
+    Returns only future scheduled calls, ordered by scheduled time (earliest first).
+    Optional patient_id parameter to filter calls for a specific patient.
+    """
+    from datetime import datetime
+    calls = db.get_upcoming_calls(limit=10, patient_id=patient_id)
+    # Add timestamp to response to help with cache busting
+    return {
+        "calls": calls, 
+        "count": len(calls),
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.put("/patients/{patient_id}/ivr-schedule")
 async def update_ivr_schedule(patient_id: int, schedule: List[IVRScheduleItem]):
@@ -333,7 +345,7 @@ async def twilio_voice(request: Request):
 
 @app.post("/twilio/handle_key")
 async def twilio_handle_key(request: Request):
-    """Handle key press during call"""
+    """Handle key press during call (DISABLED - feature removed)"""
     form_data = await request.form()
     form_dict = dict(form_data)
     twiml = twilio_service.handle_key_press(form_dict)
@@ -341,7 +353,7 @@ async def twilio_handle_key(request: Request):
 
 @app.post("/twilio/handle_recording")
 async def twilio_handle_recording(request: Request):
-    """Handle recorded message"""
+    """Handle recorded message (DISABLED - feature removed)"""
     form_data = await request.form()
     form_dict = dict(form_data)
     twiml = twilio_service.handle_recording(form_dict)
@@ -354,38 +366,8 @@ async def process_twilio_message(request: dict):
 
 @app.post("/messages/{message_id}/process")
 async def process_message(message_id: int, message_data: MessageProcess):
-    """Process a pending patient message"""
-    # Get message from database
-    pending_messages = db.get_pending_messages()
-    message = next((m for m in pending_messages if m['id'] == message_id), None)
-    
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found")
-    
-    # Get patient context
-    patient = db.get_patient(message['patient_id'])
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-    
-    import json
-    patient_context = {
-        'name': patient['name'],
-        'gestational_age_weeks': patient['gestational_age_weeks'],
-        'risk_category': patient.get('risk_category', 'low'),
-        'risk_factors': json.loads(patient.get('risk_factors', '[]'))
-    }
-    
-    # Process message with AI
-    response = gemma_ai.process_patient_message(message_data.transcript, patient_context)
-    
-    # Update message in database
-    db.update_message(message_id, gemma_response=response, status="processed")
-    
-    # Schedule callback if needed
-    callback_time = datetime.now() + timedelta(hours=24)
-    db.update_message(message_id, scheduled_callback=callback_time)
-    
-    return {"response": response, "scheduled_callback": callback_time.isoformat()}
+    """Process a pending patient message (DISABLED - message recording feature removed)"""
+    raise HTTPException(status_code=410, detail="Message processing feature has been removed. Patient message recording is no longer available.")
 
 @app.get("/analytics/dashboard")
 async def get_analytics_dashboard():
@@ -428,10 +410,15 @@ async def execute_call(call_id: int):
             raise HTTPException(status_code=400, detail="Call already completed")
         
         # Make the call
+        # Use TwiML directly if SERVER_URL is localhost (for testing), otherwise use webhook
+        server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+        use_twiml = "localhost" in server_url or "127.0.0.1" in server_url
+        
         call_sid = twilio_service.make_call(
             to_number=call['phone'],
             message_text=call.get('message_text', ''),
-            patient_id=call['patient_id']
+            patient_id=call['patient_id'],
+            use_twiml=use_twiml
         )
         
         if call_sid:
@@ -445,9 +432,101 @@ async def execute_call(call_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/calls/{call_id}")
+async def cancel_call(call_id: int):
+    """Cancel/delete a scheduled call"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if call exists
+        cursor.execute("SELECT id, status FROM call_logs WHERE id = ?", (call_id,))
+        call_row = cursor.fetchone()
+        
+        if not call_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Call not found")
+        
+        call = dict(call_row)
+        
+        # If call is already completed, just mark it as cancelled
+        # Otherwise, delete it
+        if call.get('status') == 'completed':
+            # Mark as cancelled
+            cursor.execute("""
+                UPDATE call_logs 
+                SET status = 'cancelled'
+                WHERE id = ?
+            """, (call_id,))
+        else:
+            # Delete the call
+            cursor.execute("DELETE FROM call_logs WHERE id = ?", (call_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        return {"message": "Call cancelled successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Helper functions
+def generate_simple_message(
+    topic: str,
+    patient_name: str,
+    gestational_age_weeks: int,
+    risk_factors: List[str] = None,
+    risk_category: str = "low",
+    medications: List[str] = None
+) -> str:
+    """Generate simple IVR messages without AI model
+    
+    Args:
+        topic: Type of message (weekly_checkin, medication_reminder, high_risk_monitoring)
+        patient_name: Patient's name
+        gestational_age_weeks: Current gestational age in weeks
+        risk_factors: List of risk factors
+        risk_category: Risk category (low, medium, high)
+        medications: List of medication strings
+    """
+    risk_factors = risk_factors or []
+    medications = medications or []
+    
+    if topic == "weekly_checkin":
+        message = f"Hello {patient_name}, this is your week {gestational_age_weeks} pregnancy check-in from SabCare. "
+        if gestational_age_weeks < 12:
+            message += "During your first trimester, it's important to take your prenatal vitamins and get plenty of rest."
+        elif gestational_age_weeks < 28:
+            message += "You're in your second trimester. Continue with regular prenatal care and maintain a healthy diet."
+        else:
+            message += "You're in your third trimester. Monitor for any signs of labor and stay in close contact with your healthcare provider."
+    
+    elif topic == "medication_reminder":
+        if medications:
+            med_list = ", ".join(medications)
+            message = f"Hello {patient_name}, this is your reminder to take your medications: {med_list}. "
+        else:
+            message = f"Hello {patient_name}, this is your medication reminder. "
+        message += "Please take your medications as prescribed by your healthcare provider."
+    
+    elif topic == "high_risk_monitoring":
+        message = f"Hello {patient_name}, this is your high-risk pregnancy monitoring call from SabCare. "
+        if risk_factors:
+            message += f"Given your risk factors including {', '.join(risk_factors)}, "
+        message += "it's important to monitor your symptoms closely and contact your healthcare provider immediately if you experience any concerns."
+    
+    else:
+        message = f"Hello {patient_name}, this is a message from your SabCare pregnancy care team. "
+        message += "Please stay in touch with your healthcare provider regarding your pregnancy care."
+    
+    if risk_category == "high":
+        message += " Given your high-risk status, please be extra vigilant about any changes in your condition."
+    
+    return message
+
 def convert_medications_to_strings(medications: List) -> List[str]:
-    """Convert medication objects/dicts to string format for AI model"""
+    """Convert medication objects/dicts to string format"""
     med_strings = []
     for med in medications:
         if isinstance(med, dict):
@@ -498,7 +577,7 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
         call_time = current_time + timedelta(days=week * call_frequency_days)
         
         # Weekly check-in
-        message = gemma_ai.generate_personalized_ivr_message(
+        message = generate_simple_message(
             topic="weekly_checkin",
             patient_name=patient.name,
             gestational_age_weeks=gestational_age + week,
@@ -567,7 +646,7 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
                     
                     # Only schedule if it's in the future
                     if call_time > current_time:
-                        message = gemma_ai.generate_personalized_ivr_message(
+                        message = generate_simple_message(
                             topic="medication_reminder",
                             patient_name=patient.name,
                             gestational_age_weeks=gestational_age + week,
@@ -596,7 +675,7 @@ def generate_ivr_schedule(patient_id: int, patient: PatientCreate) -> List[Dict]
         for week in range(min(weeks_remaining, 20)):
             call_time = current_time + timedelta(days=week * call_frequency_days + 1)
             
-            message = gemma_ai.generate_personalized_ivr_message(
+            message = generate_simple_message(
                 topic="high_risk_monitoring",
                 patient_name=patient.name,
                 gestational_age_weeks=gestational_age + week,

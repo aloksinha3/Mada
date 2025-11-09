@@ -69,13 +69,19 @@ export const api = {
   // IVR Schedule
   generateIVRSchedule: (patientId: number) =>
     apiClient.post('/generate_comprehensive_ivr_schedule', { patient_id: patientId }),
-  getUpcomingCalls: () => apiClient.get('/upcoming-calls-summary'),
+  getUpcomingCalls: (patientId?: number) => apiClient.get('/upcoming-calls-summary', {
+    params: { 
+      _t: Date.now(), // Add timestamp to prevent caching
+      ...(patientId && { patient_id: patientId })
+    }
+  }),
   
   // Analytics
   getAnalytics: () => apiClient.get('/analytics/dashboard'),
   
   // Calls
   executeCall: (callId: number) => apiClient.post(`/calls/${callId}/execute`),
+  cancelCall: (callId: number) => apiClient.delete(`/calls/${callId}`),
 }
 
 export default apiClient
