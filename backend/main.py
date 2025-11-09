@@ -6,6 +6,9 @@ from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 import sys
 import os
+import asyncio
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -13,7 +16,92 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from database import Database
 from twilio_integration import TwilioService
 
-app = FastAPI(title="SabCare API", version="1.0.0")
+from contextlib import asynccontextmanager
+
+# Initialize services (must be before scheduler functions)
+db = Database()
+twilio_service = TwilioService()
+
+# Initialize scheduler for automatic call execution (must be before app creation)
+scheduler = AsyncIOScheduler()
+
+async def check_and_execute_calls():
+    """Background task to check for scheduled calls and execute them"""
+    try:
+        from datetime import datetime
+        current_time = datetime.now()
+        
+        # Get calls that are scheduled and due
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT cl.id, cl.patient_id, cl.call_type, cl.message_text, cl.scheduled_time, p.name, p.phone
+            FROM call_logs cl
+            JOIN patients p ON cl.patient_id = p.id
+            WHERE cl.status = 'scheduled'
+            AND datetime(cl.scheduled_time) <= datetime(?)
+            ORDER BY cl.scheduled_time ASC
+            LIMIT 10
+        """, (current_time.isoformat(),))
+        
+        calls_to_execute = cursor.fetchall()
+        conn.close()
+        
+        if calls_to_execute:
+            print(f"🕐 Found {len(calls_to_execute)} calls to execute")
+        
+        for call_row in calls_to_execute:
+            call = dict(call_row)
+            call_id = call['id']
+            
+            try:
+                # Use TwiML directly for local testing
+                server_url = os.getenv("SERVER_URL", "http://localhost:8000")
+                use_twiml = "localhost" in server_url or "127.0.0.1" in server_url
+                
+                print(f"📞 Auto-executing call {call_id} for {call['name']} at {call['scheduled_time']}")
+                
+                call_sid = twilio_service.make_call(
+                    to_number=call['phone'],
+                    message_text=call.get('message_text', ''),
+                    patient_id=call['patient_id'],
+                    use_twiml=use_twiml
+                )
+                
+                if call_sid:
+                    # Update call status
+                    db.update_call_status(call_id, 'completed', datetime.now())
+                    print(f"✅ Call {call_id} executed successfully (SID: {call_sid})")
+                else:
+                    print(f"❌ Failed to execute call {call_id}")
+            except Exception as e:
+                print(f"❌ Error executing call {call_id}: {e}")
+    except Exception as e:
+        print(f"❌ Error in check_and_execute_calls: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage scheduler lifecycle"""
+    # Startup
+    # Check for calls every 30 seconds
+    scheduler.add_job(
+        check_and_execute_calls,
+        trigger=IntervalTrigger(seconds=30),
+        id="execute_scheduled_calls",
+        name="Execute scheduled calls",
+        replace_existing=True
+    )
+    scheduler.start()
+    print("✅ Call scheduler started - checking for scheduled calls every 30 seconds")
+    
+    yield
+    
+    # Shutdown
+    scheduler.shutdown()
+    print("🛑 Call scheduler stopped")
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="SabCare API", version="1.0.0", lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
@@ -24,9 +112,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
-db = Database()
-twilio_service = TwilioService()
+# Services are initialized above (before app creation)
 
 # Pydantic models
 class Medication(BaseModel):
@@ -383,54 +469,6 @@ async def get_analytics_dashboard():
         "high_risk_patients": len([p for p in patients if p.get('risk_category') == 'high']),
         "low_risk_patients": len([p for p in patients if p.get('risk_category') == 'low'])
     }
-
-@app.post("/calls/{call_id}/execute")
-async def execute_call(call_id: int):
-    """Execute a scheduled call"""
-    try:
-        # Get call details directly from database
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT cl.*, p.name, p.phone 
-            FROM call_logs cl
-            JOIN patients p ON cl.patient_id = p.id
-            WHERE cl.id = ?
-        """, (call_id,))
-        call_row = cursor.fetchone()
-        conn.close()
-        
-        if not call_row:
-            raise HTTPException(status_code=404, detail="Call not found")
-        
-        call = dict(call_row)
-        
-        # Check if call is already completed
-        if call.get('status') == 'completed':
-            raise HTTPException(status_code=400, detail="Call already completed")
-        
-        # Make the call
-        # Use TwiML directly if SERVER_URL is localhost (for testing), otherwise use webhook
-        server_url = os.getenv("SERVER_URL", "http://localhost:8000")
-        use_twiml = "localhost" in server_url or "127.0.0.1" in server_url
-        
-        call_sid = twilio_service.make_call(
-            to_number=call['phone'],
-            message_text=call.get('message_text', ''),
-            patient_id=call['patient_id'],
-            use_twiml=use_twiml
-        )
-        
-        if call_sid:
-            # Update call status
-            db.update_call_status(call_id, 'completed', datetime.now())
-            return {"message": "Call executed successfully", "call_sid": call_sid}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to make call. Check Twilio configuration and ensure SERVER_URL is set correctly (use ngrok for local testing).")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/calls/{call_id}")
 async def cancel_call(call_id: int):

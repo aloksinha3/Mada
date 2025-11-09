@@ -80,7 +80,6 @@ export const api = {
   getAnalytics: () => apiClient.get('/analytics/dashboard'),
   
   // Calls
-  executeCall: (callId: number) => apiClient.post(`/calls/${callId}/execute`),
   cancelCall: (callId: number) => apiClient.delete(`/calls/${callId}`),
 }
 

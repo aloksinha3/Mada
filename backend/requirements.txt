@@ -15,6 +15,9 @@ sqlalchemy>=2.0.23
 # Twilio
 twilio>=8.10.0
 
+# Scheduling
+apscheduler>=3.11.0
+
 # AI/ML dependencies (optional - install separately if needed)
 # transformers>=4.35.2
 # torch>=2.6.0

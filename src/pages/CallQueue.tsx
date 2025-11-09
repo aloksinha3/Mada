@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { Phone, Clock, CheckCircle, Play, X } from 'lucide-react'
+import { Phone, Clock, CheckCircle, X } from 'lucide-react'
 
 interface Call {
   id: number
@@ -56,22 +56,6 @@ export default function CallQueue() {
     }
   }
 
-  const handleExecuteCall = async (callId: number) => {
-    if (!confirm('Are you sure you want to execute this call now?')) {
-      return
-    }
-    
-    try {
-      await api.executeCall(callId)
-      alert('Call executed successfully!')
-      loadCalls() // Refresh the list
-    } catch (error: any) {
-      console.error('Error executing call:', error)
-      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred'
-      alert(`Error executing call: ${errorMessage}`)
-    }
-  }
-
   const handleCancelCall = async (callId: number, patientName: string) => {
     if (!confirm(`Are you sure you want to cancel this call for ${patientName}?`)) {
       return
@@ -99,6 +83,10 @@ export default function CallQueue() {
           <h2 className="text-3xl font-bold text-gray-900">Call Queue</h2>
           <p className="text-sm text-gray-500 mt-1">
             Last updated: {lastUpdate.toLocaleTimeString()}
+          </p>
+          <p className="text-xs text-blue-600 mt-1 flex items-center">
+            <Clock className="w-3 h-3 mr-1" />
+            Calls are executed automatically at their scheduled time
           </p>
         </div>
         <button
@@ -132,7 +120,7 @@ export default function CallQueue() {
                 Message Preview
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
+                Action
               </th>
             </tr>
           </thead>
@@ -174,26 +162,16 @@ export default function CallQueue() {
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {call.message_text?.substring(0, 100)}...
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     {call.status === 'scheduled' && (
-                      <>
-                        <button
-                          onClick={() => handleExecuteCall(call.id)}
-                          className="text-green-600 hover:text-green-900 flex items-center"
-                          title="Execute call now"
-                        >
-                          <Play className="w-4 h-4 mr-1" />
-                          Execute
-                        </button>
-                        <button
-                          onClick={() => handleCancelCall(call.id, call.name)}
-                          className="text-red-600 hover:text-red-900 flex items-center"
-                          title="Cancel call"
-                        >
-                          <X className="w-4 h-4 mr-1" />
-                          Cancel
-                        </button>
-                      </>
+                      <button
+                        onClick={() => handleCancelCall(call.id, call.name)}
+                        className="text-red-600 hover:text-red-900 flex items-center"
+                        title="Cancel call"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Cancel
+                      </button>
                     )}
                   </td>
                 </tr>
