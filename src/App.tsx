@@ -10,8 +10,7 @@ function App() {
     <Router>
       <Layout>
         <Routes>
-          <Route path="/" element={<CallQueue />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/" element={<Dashboard />} />
           <Route path="/patients" element={<PatientManager />} />
           <Route path="/calls" element={<CallQueue />} />
           <Route path="/analytics" element={<Analytics />} />

@@ -10,9 +10,9 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
 
   const navItems = [
-    { path: '/', icon: Phone, label: 'Call Queue' },
-    { path: '/dashboard', icon: Home, label: 'Dashboard' },
+    { path: '/', icon: Home, label: 'Dashboard' },
     { path: '/patients', icon: Users, label: 'Patients' },
+    { path: '/calls', icon: Phone, label: 'Call Queue' },
     { path: '/analytics', icon: BarChart3, label: 'Analytics' },
   ]
 
